@@ -1,21 +1,25 @@
-use super::blocking;
-#[cfg(feature = "nonblocking")]
-use super::nonblocking;
-use super::{level::DataDogLogLevel, log::DataDogLog};
-#[cfg(feature = "nonblocking")]
-use crate::client::AsyncDataDogClient;
-use crate::{client::DataDogClient, config::DataDogConfig, error::DataDogLoggerError};
+use std::{fmt::Display, ops::Drop, thread};
+
 use flume::{bounded, unbounded, Receiver, Sender};
 #[cfg(feature = "nonblocking")]
 use futures::Future;
 use log::{LevelFilter, Log, Metadata, Record};
-use std::{fmt::Display, ops::Drop, thread};
+
+#[cfg(feature = "nonblocking")]
+use crate::client::AsyncDataDogClient;
+use crate::{client::DataDogClient, config::DataDogConfig, error::DataDogLoggerError};
+
+use super::blocking;
+#[cfg(feature = "nonblocking")]
+use super::nonblocking;
+use super::{level::DataDogLogLevel, log::DataDogLog};
 
 #[derive(Debug)]
 /// Logger that logs directly to DataDog via HTTP(S)
 pub struct DataDogLogger {
     config: DataDogConfig,
     logsender: Option<Sender<DataDogLog>>,
+    flushsender: Option<Sender<()>>,
     selflogrv: Option<Receiver<String>>,
     selflogsd: Option<Sender<String>>,
     logger_handle: Option<thread::JoinHandle<()>>,
@@ -59,13 +63,16 @@ impl DataDogLogger {
             Some(capacity) => bounded(capacity),
             None => unbounded(),
         };
+        let (flushsender, flushreceiver) = bounded::<()>(1);
 
-        let logger_handle =
-            thread::spawn(move || blocking::logger_thread(client, receiver, slsender));
+        let logger_handle = thread::spawn(move || {
+            blocking::logger_thread(client, receiver, flushreceiver, slsender)
+        });
 
         DataDogLogger {
             config,
             logsender: Some(sender),
+            flushsender: Some(flushsender),
             selflogrv: slreceiver,
             selflogsd: slogsender_clone,
             logger_handle: Some(logger_handle),
@@ -121,16 +128,19 @@ impl DataDogLogger {
         } else {
             (None, None)
         };
+        let (flushsender, flushreceiver) = bounded::<()>(1);
         let slogsender_clone = slsender.clone();
         let (logsender, logreceiver) = match config.messages_channel_capacity {
             Some(capacity) => bounded(capacity),
             None => unbounded(),
         };
-        let logger_future = nonblocking::logger_future(client, logreceiver, slsender);
+        let logger_future =
+            nonblocking::logger_future(client, logreceiver, flushreceiver, slsender);
 
         let logger = DataDogLogger {
             config,
             logsender: Some(logsender),
+            flushsender: Some(flushsender),
             selflogrv: slreceiver,
             selflogsd: slogsender_clone,
             logger_handle: None,
@@ -259,7 +269,11 @@ impl Log for DataDogLogger {
         &self.log(format!("{}", record.args()), level);
     }
 
-    fn flush(&self) {}
+    fn flush(&self) {
+        if let Some(ref flushsender) = self.flushsender {
+            flushsender.send(()).expect("Failed to flush")
+        }
+    }
 }
 
 impl Drop for DataDogLogger {

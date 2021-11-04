@@ -5,6 +5,7 @@ use flume::{Receiver, RecvError, Sender, TryRecvError};
 pub(crate) async fn logger_future<T>(
     mut client: T,
     logs: Receiver<DataDogLog>,
+    flush: Receiver<()>,
     mut selflog: Option<Sender<String>>,
 ) where
     T: AsyncDataDogClient,
@@ -51,6 +52,11 @@ pub(crate) async fn logger_future<T>(
                 break ();
             }
         };
+        if let Ok(_) = flush.try_recv() {
+            if !store.is_empty() {
+                send(&mut client, &mut store, &mut selflog).await
+            }
+        }
     }
 }
 

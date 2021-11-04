@@ -5,6 +5,7 @@ use flume::{Receiver, Sender, TryRecvError};
 pub(crate) fn logger_thread<T: DataDogClient>(
     mut client: T,
     logs: Receiver<DataDogLog>,
+    flush: Receiver<()>,
     mut selflog: Option<Sender<String>>,
 ) {
     let mut store: Vec<DataDogLog> = Vec::new();
@@ -31,6 +32,9 @@ pub(crate) fn logger_thread<T: DataDogClient>(
                 break;
             }
         };
+        if let Ok(_) = flush.try_recv() {
+            send(&mut client, &mut store, &mut selflog);
+        }
     }
 }
 
