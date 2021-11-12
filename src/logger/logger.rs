@@ -256,7 +256,14 @@ impl Log for DataDogLogger {
             log::Level::Debug | log::Level::Trace => DataDogLogLevel::Debug,
         };
 
-        &self.log(format!("{}", record.args()), level);
+        &self.log(
+            format!(
+                "[{}] {}",
+                record.module_path().unwrap_or_default(),
+                record.args()
+            ),
+            level,
+        );
     }
 
     fn flush(&self) {}
