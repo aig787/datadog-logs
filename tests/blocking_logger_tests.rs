@@ -2,9 +2,10 @@ mod utils;
 
 use datadog_logs::{
     config::DataDogConfig,
-    logger::{DataDogLog, DataDogLogLevel, DataDogLogger},
+    logger::{filter, DataDogLog, DataDogLogLevel, DataDogLogger},
 };
 use flume::{unbounded, Receiver, RecvTimeoutError};
+use log::LevelFilter;
 
 #[test]
 fn test_no_messages_sent() {
@@ -107,6 +108,9 @@ fn create_default_logger() -> (DataDogLogger, Receiver<DataDogLog>) {
             enable_self_log: true,
             ..Default::default()
         },
+        filter::Builder::new()
+            .filter_level(LevelFilter::Info)
+            .build(),
     );
 
     (logger, receiver)

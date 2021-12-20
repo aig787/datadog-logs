@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::default::Default;
+
+use serde::{Deserialize, Serialize};
 
 /// Configuration for DataDogLogger
 #[derive(Debug, Clone, Serialize, Deserialize)]

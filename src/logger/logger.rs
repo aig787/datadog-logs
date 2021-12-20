@@ -1,15 +1,19 @@
+use std::{fmt::Display, ops::Drop, thread};
+
+use flume::{bounded, unbounded, Receiver, Sender};
+#[cfg(feature = "nonblocking")]
+use futures::Future;
+use log::{Log, Metadata, Record};
+
+#[cfg(feature = "nonblocking")]
+use crate::client::AsyncDataDogClient;
+use crate::logger::filter;
+use crate::{client::DataDogClient, config::DataDogConfig, error::DataDogLoggerError};
+
 use super::blocking;
 #[cfg(feature = "nonblocking")]
 use super::nonblocking;
 use super::{level::DataDogLogLevel, log::DataDogLog};
-#[cfg(feature = "nonblocking")]
-use crate::client::AsyncDataDogClient;
-use crate::{client::DataDogClient, config::DataDogConfig, error::DataDogLoggerError};
-use flume::{bounded, unbounded, Receiver, Sender};
-#[cfg(feature = "nonblocking")]
-use futures::Future;
-use log::{LevelFilter, Log, Metadata, Record};
-use std::{fmt::Display, ops::Drop, thread};
 
 #[derive(Debug)]
 /// Logger that logs directly to DataDog via HTTP(S)
@@ -19,6 +23,7 @@ pub struct DataDogLogger {
     selflogrv: Option<Receiver<String>>,
     selflogsd: Option<Sender<String>>,
     logger_handle: Option<thread::JoinHandle<()>>,
+    filter: filter::Filter,
 }
 
 impl DataDogLogger {
@@ -38,13 +43,15 @@ impl DataDogLogger {
     ///
     /// # Examples
     ///```rust
-    ///use datadog_logs::{config::DataDogConfig, logger::DataDogLogger, client::HttpDataDogClient};
+    ///use log::LevelFilter;
+    /// use datadog_logs::{config::DataDogConfig, logger::{DataDogLogger, filter}, client::HttpDataDogClient};
     ///
     ///let config = DataDogConfig::default();
     ///let client = HttpDataDogClient::new(&config).unwrap();
-    ///let logger = DataDogLogger::blocking(client, config);
+    ///let filter = filter::Builder::new().filter_level(LevelFilter::Info).build();
+    ///let logger = DataDogLogger::blocking(client, config, filter);
     ///```
-    pub fn blocking<T>(client: T, config: DataDogConfig) -> Self
+    pub fn blocking<T>(client: T, config: DataDogConfig, filter: filter::Filter) -> Self
     where
         T: DataDogClient + Send + 'static,
     {
@@ -69,6 +76,7 @@ impl DataDogLogger {
             selflogrv: slreceiver,
             selflogsd: slogsender_clone,
             logger_handle: Some(logger_handle),
+            filter,
         }
     }
 
@@ -78,11 +86,15 @@ impl DataDogLogger {
     /// It is equivalent to calling [`non_blocking_cold`](Self::non_blocking_cold) and spawning future to Tokio runtime.
     /// Thus it is only a convinience function.
     #[cfg(feature = "with-tokio")]
-    pub fn non_blocking_with_tokio<T>(client: T, config: DataDogConfig) -> Self
+    pub fn non_blocking_with_tokio<T>(
+        client: T,
+        config: DataDogConfig,
+        filter: filter::Filter,
+    ) -> Self
     where
         T: AsyncDataDogClient + Send + 'static,
     {
-        let (logger, future) = Self::non_blocking_cold(client, config);
+        let (logger, future) = Self::non_blocking_cold(client, config, filter);
         tokio::spawn(future);
         logger
     }
@@ -97,12 +109,14 @@ impl DataDogLogger {
     ///
     /// # Examples
     ///```rust
-    ///use datadog_logs::{config::DataDogConfig, logger::DataDogLogger, client::HttpDataDogClient};
+    ///use log::LevelFilter;
+    ///use datadog_logs::{config::DataDogConfig, logger::{DataDogLogger, filter}, client::HttpDataDogClient};
     ///
     ///# async fn func() {
     ///let config = DataDogConfig::default();
     ///let client = HttpDataDogClient::new(&config).unwrap();
-    ///let (logger, future) = DataDogLogger::non_blocking_cold(client, config);
+    ///let filter = filter::Builder::new().filter_level(LevelFilter::Info).build();
+    ///let (logger, future) = DataDogLogger::non_blocking_cold(client, config, filter);
     ///
     ///tokio::spawn(future);
     ///# }
@@ -111,6 +125,7 @@ impl DataDogLogger {
     pub fn non_blocking_cold<T>(
         client: T,
         config: DataDogConfig,
+        filter: filter::Filter,
     ) -> (Self, impl Future<Output = ()>)
     where
         T: AsyncDataDogClient,
@@ -134,6 +149,7 @@ impl DataDogLogger {
             selflogrv: slreceiver,
             selflogsd: slogsender_clone,
             logger_handle: None,
+            filter,
         };
 
         (logger, logger_future)
@@ -147,11 +163,13 @@ impl DataDogLogger {
     /// ## Examples
     ///
     ///```rust
-    ///use datadog_logs::{config::DataDogConfig, logger::{DataDogLogger, DataDogLogLevel}, client::HttpDataDogClient};
+    ///use log::LevelFilter;
+    ///use datadog_logs::{config::DataDogConfig, logger::{DataDogLogger, DataDogLogLevel, filter}, client::HttpDataDogClient};
     ///
     ///let config = DataDogConfig::default();
     ///let client = HttpDataDogClient::new(&config).unwrap();
-    ///let logger = DataDogLogger::blocking(client, config);
+    ///let filter = filter::Builder::new().filter_level(LevelFilter::Info).build();
+    ///let logger = DataDogLogger::blocking(client, config, filter);
     ///
     ///logger.log("message", DataDogLogLevel::Error);
     ///```
@@ -183,28 +201,30 @@ impl DataDogLogger {
     /// # Examples
     ///
     ///```rust
-    ///use datadog_logs::{config::DataDogConfig, logger::{DataDogLogger, DataDogLogLevel}, client::HttpDataDogClient};
+    ///use datadog_logs::{config::DataDogConfig, logger::{DataDogLogger, DataDogLogLevel, filter}, client::HttpDataDogClient};
     ///use log::*;
     ///
     ///let config = DataDogConfig::default();
     ///let client = HttpDataDogClient::new(&config).unwrap();
+    ///let filter = filter::Builder::new().filter_level(LevelFilter::Info).build();
     ///
-    ///DataDogLogger::set_blocking_logger(client, config, LevelFilter::Error);
+    ///DataDogLogger::set_blocking_logger(client, config, filter);
     ///
-    ///error!("An error occured");
+    ///error!("An error occurred");
     ///warn!("A warning")
     ///```
     pub fn set_blocking_logger<T>(
         client: T,
         config: DataDogConfig,
-        level: LevelFilter,
+        filter: filter::Filter,
     ) -> Result<(), DataDogLoggerError>
     where
         T: DataDogClient + Send + 'static,
     {
-        let logger = DataDogLogger::blocking(client, config);
+        let level_filter = filter.filter();
+        let logger = DataDogLogger::blocking(client, config, filter);
         log::set_boxed_logger(Box::new(logger))?;
-        log::set_max_level(level);
+        log::set_max_level(level_filter);
         Ok(())
     }
 
@@ -213,13 +233,14 @@ impl DataDogLogger {
     /// To make logger work, returned future has to be spawned to executor.
     /// # Examples
     ///```rust
-    ///use datadog_logs::{config::DataDogConfig, logger::DataDogLogger, client::HttpDataDogClient};
+    ///use datadog_logs::{config::DataDogConfig, logger::{DataDogLogger, filter}, client::HttpDataDogClient};
     ///use log::*;
     ///
     ///# async fn func() {
     ///let config = DataDogConfig::default();
     ///let client = HttpDataDogClient::new(&config).unwrap();
-    ///let future = DataDogLogger::set_nonblocking_logger(client, config, LevelFilter::Error).unwrap();
+    ///let filter = filter::Builder::new().filter_level(LevelFilter::Info).build();
+    ///let future = DataDogLogger::set_nonblocking_logger(client, config, filter).unwrap();
     ///
     ///tokio::spawn(future);
     ///
@@ -231,39 +252,42 @@ impl DataDogLogger {
     pub fn set_nonblocking_logger<T>(
         client: T,
         config: DataDogConfig,
-        level: LevelFilter,
+        filter: filter::Filter,
     ) -> Result<impl Future<Output = ()>, DataDogLoggerError>
     where
         T: AsyncDataDogClient + Send + 'static,
     {
-        let (logger, future) = DataDogLogger::non_blocking_cold(client, config);
+        let level_filter = filter.filter();
+        let (logger, future) = DataDogLogger::non_blocking_cold(client, config, filter);
         log::set_boxed_logger(Box::new(logger))?;
-        log::set_max_level(level);
+        log::set_max_level(level_filter);
         Ok(future)
     }
 }
 
 impl Log for DataDogLogger {
-    fn enabled(&self, _metadata: &Metadata) -> bool {
-        true
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        self.filter.enabled(metadata)
     }
 
     fn log(&self, record: &Record) {
-        let level = match record.level() {
-            log::Level::Error => DataDogLogLevel::Error,
-            log::Level::Warn => DataDogLogLevel::Warning,
-            log::Level::Info => DataDogLogLevel::Informational,
-            log::Level::Debug | log::Level::Trace => DataDogLogLevel::Debug,
-        };
+        if self.filter.matches(record) {
+            let level = match record.level() {
+                log::Level::Error => DataDogLogLevel::Error,
+                log::Level::Warn => DataDogLogLevel::Warning,
+                log::Level::Info => DataDogLogLevel::Informational,
+                log::Level::Debug | log::Level::Trace => DataDogLogLevel::Debug,
+            };
 
-        &self.log(
-            format!(
-                "[{}] {}",
-                record.module_path().unwrap_or_default(),
-                record.args()
-            ),
-            level,
-        );
+            self.log(
+                format!(
+                    "[{}] {}",
+                    record.module_path().unwrap_or_default(),
+                    record.args()
+                ),
+                level,
+            );
+        }
     }
 
     fn flush(&self) {}

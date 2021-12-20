@@ -12,14 +12,15 @@
 //! # Using with `log` crate
 //!
 //!```rust
-//!use datadog_logs::{config::DataDogConfig, logger::DataDogLogger, client::HttpDataDogClient};
+//!use datadog_logs::{config::DataDogConfig, logger::{DataDogLogger, filter}, client::HttpDataDogClient};
 //!use log::*;
 //!
 //!# async fn func() {
 //!let config = DataDogConfig::default();
 //!let client = HttpDataDogClient::new(&config).unwrap();
+//!let filter = filter::Builder::new().filter_level(LevelFilter::Info).build();
 //! // there is also a blocking logger available that does not require runtime
-//!let future = DataDogLogger::set_nonblocking_logger(client, config, LevelFilter::Error).unwrap();
+//!let future = DataDogLogger::set_nonblocking_logger(client, config, filter).unwrap();
 //!
 //! // there is a convinence function available to spawn future to tokio
 //! // however, this design makes it compatible with every runtime without effort
