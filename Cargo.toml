@@ -3,9 +3,9 @@ authors = ["Radosław Kot <rdkt13@gmail.com>"]
 description = "Simple client library for DataDog logs"
 edition = "2018"
 exclude = [
-  "tests/*",
-  "generate_assets.sh",
-  "assets/*",
+    "tests/*",
+    "generate_assets.sh",
+    "assets/*",
 ]
 homepage = "https://github.com/szarykott/datadog-logs"
 keywords = ["logging", "datadog"]
@@ -13,7 +13,7 @@ license = "MIT"
 name = "datadog-logs"
 readme = "README.md"
 repository = "https://github.com/szarykott/datadog-logs"
-version = "0.2.3"
+version = "0.2.4"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -24,20 +24,20 @@ with-tokio = ["tokio", "nonblocking"]
 
 [dependencies]
 # non optional
-attohttpc = {version = "0.15", features = ["tls", "compress"]}
-flume = {version = "0.10.0"}
-log = {version = "0.4", features = ["std"]}
-serde = {version = "1.0", features = ["derive"]}
-serde_json = {version = "1.0"}
-url = {version = "2.1"}
-thiserror = "1.0.24"
+attohttpc = { version = "^0.15", default-features = false, features = ["rustls", "compress"] }
+flume = { version = "^0.10" }
+log = { version = "^0.4", features = ["std"] }
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = { version = "^1.0" }
+url = { version = "^2.1" }
+thiserror = "^1.0"
 # borrow filter parsing implementation
-env_logger = "0.9.0"
+env_logger = "^0.9"
 # optional
-async-trait = {version = "0.1.42", optional = true}
-futures = {version = "0.3.8", optional = true}
-reqwest = {version = "0.11.1", default-features = false, features = ["json", "rustls-tls"], optional = true}
-tokio = {version = "1.0", features = ["rt"], optional = true}
+async-trait = { version = "^0.1", optional = true }
+futures = { version = "^0.3", optional = true }
+reqwest = { version = "^0.11", default-features = false, features = ["json", "rustls-tls"], optional = true }
+tokio = { version = "^1.15", features = ["rt"], optional = true }
 
 [dev-dependencies]
-tokio = {version = "1.0", features = ["full"]}
+tokio = { version = "^1.15", features = ["full"] }
